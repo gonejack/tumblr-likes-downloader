@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const Downloader = require('mt-files-downloader');
+const TumblrTool = require('tumblr.js');
 
 function async(gen) {
     return function () {
@@ -64,8 +65,7 @@ class Tumblr extends Base {
     constructor(credentials, path) {
         super();
 
-        let tumblr = require('tumblr.js');
-        this.client = tumblr.createClient({
+        this.client = TumblrTool.createClient({
             credentials: credentials,
 
             returnPromises: true,
