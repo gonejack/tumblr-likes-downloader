@@ -1,0 +1,8 @@
+{
+  "name": "tumblr-likes-downloader",
+  "version": "0.0.1",
+  "dependencies": {
+    "mt-files-downloader": "^0.2.5",
+    "tumblr.js": "^1.1.1"
+  }
+}
