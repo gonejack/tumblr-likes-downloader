@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
-const Downloader = require('mt-files-downloader');
-const TumblrTool = require('tumblr.js');
+const got = require('got');
+const tumblrJS = require('tumblr.js');
 
 function async(gen) {
     return function () {
@@ -61,160 +61,194 @@ class Base {
 }
 
 class Tumblr extends Base {
-    constructor(credentials, path) {
+    constructor(credentials, options) {
         super();
 
-        this.client = TumblrTool.createClient({
+        options = Object.assign({
+            saveDir: './likes',
+            fetchNum: 250,
+            fetchStep: 20,
+            downLimit: 5,
+        }, options || {});
+
+        this.client = tumblrJS.createClient({
             credentials: credentials,
 
             returnPromises: true,
         });
 
-        let date = new Date();
-        this.txtfd = fs.openSync(['./', date.getFullYear(), date.getMonth(), '.txt'].join(''), 'a+');
-        this.record = fs.readFileSync(this.txtfd);
-
-        let dir = path || './likes/';
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir)
-        }
-        this.dir = dir;
-
-        this.downloader = new Downloader();
-
         this.post = null;
+        this.saveDir = options.saveDir;
+        this.fetchNum = options.fetchNum;
+        this.fetchStep = options.fetchStep;
+        this.queue = [];
+        this.win = options.downLimit;
+        this.cur = 0; // current running download
+        this.setupTxt();
+
+        this.fetched = 0;
+        this.downded = 0;
 
         return this.init();
     }
-    static logDL(dl) {
-        let timer = setInterval(() => {
-            switch (dl.status) {
-                case 0:
-                    console.log('Not Started '+ dl.url);
-                    break;
-                case 1:
-                    let stats = dl.getStats();
-                    let progress = 'Progress: '+ stats.total.completed +' %';
-                    let speed = 'Speed: '+ Downloader.Formatters.speed(stats.present.speed);
-                    let time = 'Time: '+ Downloader.Formatters.elapsedTime(stats.present.time);
-                    let ETA = 'ETA: '+ Downloader.Formatters.remainingTime(stats.future.eta);
+    setupTxt() {
+        let date = new Date();
+        let file = ['./', date.getFullYear(), date.getMonth(), '.txt'].join('');
 
-                    console.log(`Downloading: ${dl.url}`);
-                    console.log(progress, speed, time, ETA);
-                    break;
-                case 2:
-                    console.log('Error: '+ dl.url +' retrying...');
-                    break;
-                case 3:
-                    console.log('Completed: '+ dl.url);
-                    clearInterval(timer);
-                    break;
-                case -1:
-                    console.log('Error: '+ dl.url +' error : '+ dl.error);
-                    clearInterval(timer);
-                    break;
-                case -2:
-                    console.log('Stopped: '+ dl.url);
-                    break;
-                case -3:
-                    console.log('Destroyed: '+ dl.url);
-                    clearInterval(timer);
-                    break;
-            }
-        }, 2000);
+        this.fd = fs.openSync(file, 'a+');
+        this.record = fs.readFileSync(this.fd);
     }
-    genName(url) {
+    getName(url) {
         let blog = this.post.blog_name;
         let postId = this.post.id;
 
         return [blog, postId, path.basename(url)].join('-');
     }
-    downSave(url, dest) {
-        let dl = this.downloader.download(url.replace(/^https/, 'http'), dest);
-
-        return new Promise((resolve, reject) => {
-            dl.on('start', resolve)
-              .on('error', () => {dl.destroy(); reject()})
-              .on('end', () => {fs.appendFileSync(this.txtfd, url + '\n')})
-              .start();
-
-            Tumblr.logDL(dl);
-        });
+    getDest(name) {
+        return this.saveDir + '/' + name;
     }
-    *downPhotos(photos) {
+    checkURLRec(url) {
+        return !this.record.includes(url);
+    }
+    writeURLRec(url) {
+        return fs.appendFileSync(this.fd, url + '\n');
+    }
+    parsePhotos(photos) {
+        let dls = [];
+
         for (let photo of photos) {
-            photo = photo.original_size;
+            let url = photo.original_size.url;
 
-            if (!this.record.includes(photo.url)) {
-                let name = this.genName(photo.url);
-
-                try {
-                    yield this.downSave(photo.url, this.dir + '/' + name);
-
-                    console.log(`Started: ${name}`);
-                }
-                catch (ex) {
-                    console.log(ex);
-                    console.log(`Failed: ${photo.url}`);
-                }
+            if (this.checkURLRec(url)) {
+                dls.push({url: url, name: this.getName(url)});
+            }
+            else {
+                console.log(`Skipped: ${url}`);
             }
         }
+
+        return dls;
     }
-    *downVideo(url) {
-        if (!this.record.includes(url)) {
-            let name = this.genName(url);
-
-            try {
-                yield this.downSave(url, this.dir + '/' + name);
-
-                console.log(`Started: ${name}`);
-            }
-            catch (ex) {
-                console.log(`Failed: ${url}`);
-            }
+    parseVideo(url) {
+        if (this.checkURLRec(url)) {
+            return {url: url, name: this.getName(url)};
+        }
+        else {
+            console.log(`Skipped: ${url}`);
         }
     }
-    *process(posts) {
+    got(url, dest) {
+        let temp = dest + '.down';
+
+        let stream = got.stream(url.replace(/^https/, 'http'));
+
+        stream.on('end', () => {
+            fs.renameSync(temp, dest);
+
+            this.downded += 1;
+            this.writeURLRec(url);
+
+            this.cur -= 1;
+            this.runWin();
+        });
+
+        stream.on('error', err => {
+            stream.unpipe();
+
+            fs.unlinkSync(temp);
+
+            console.log(err);
+        });
+
+        stream.pipe(fs.createWriteStream(temp));
+    }
+    runWin() {
+        if (this.queue.length) {
+            while (this.cur < this.win && this.queue.length) {
+                let dl = this.queue.shift();
+
+                this.got(dl.url, this.getDest(dl.name));
+
+                this.cur += 1;
+
+                console.log(`Download: ${dl.url} ${dl.name}`);
+            }
+
+            this.running = true;
+        }
+
+        else {
+            this.running = false;
+        }
+    }
+    enQueue(dls) {
+        this.queue = this.queue.concat(dls).filter(Boolean);
+    }
+    runQueue() {
+        let promise = (ok, err) => {
+            this.runWin();
+
+            let check = setInterval(() => {
+                if (!this.running) {
+                    clearInterval(check);
+
+                    ok();
+                }
+            }, 500);
+        };
+
+        return new Promise(promise);
+    }
+    *fetch(posts) {
+        this.fetched += posts.length;
+
         for (let post of posts) {
             this.post = post;
 
+            let dls;
             switch (true) {
                 case !!post.photos:
-                    yield this.downPhotos(post.photos);
-                break;
-
+                    dls = this.parsePhotos(post.photos);
+                    break;
                 case !!post.video_url:
-                    yield this.downVideo(post.video_url);
-                break;
+                    dls = this.parseVideo(post.video_url);
+                    break;
             }
+
+            dls && this.enQueue(dls);
         }
+
+        return this.runQueue();
     }
     *downLikes() {
-        let pageMax = 10, page = 1, step = 20, count = 0;
+        fs.existsSync(this.saveDir) || fs.mkdirSync(this.saveDir);
 
-        while (page <= pageMax) {
+        let offset = 0, page = 1, max = this.fetchNum, step = this.fetchStep;
+
+        while (offset < max) {
+            step = Math.min(max - offset, this.fetchStep);
+
             try {
-                console.log(`Fetch: Page ${page}`);
+                console.log(`Fetching Page ${page}`);
 
-                let data = yield this.client.userLikes({
-                    offset: (page - 1) * step,
-                    limit: step
-                });
+                let data = yield this.client.userLikes({offset: offset, limit: step});
 
-                yield this.process(data.liked_posts);
+                yield this.fetch(data.liked_posts);
 
-                console.log(`Fetched: Page ${page}`);
+                console.log(`Fetched Page ${page}`);
 
-                page += 1;
-                count += data.liked_posts.length;
-                pageMax = Math.min(Math.ceil(data.liked_count / step), pageMax);
+                max = Math.min(data.liked_count, this.fetchNum);
             }
-            catch (ex) {
-                console.log(`Fetch Failed: Page ${page}`);
+            catch (e) {
+                console.error(e);
             }
+
+            offset += step;
+            page += 1;
         }
 
-        console.log('Parsed: ', count);
+        console.log(`Post fetched: ${this.fetched}`);
+        console.log(`Things downed: ${this.downded}`);
     }
 }
 
