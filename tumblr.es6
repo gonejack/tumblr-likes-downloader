@@ -136,7 +136,8 @@ class Tumblr extends Base {
         stream.on('error', err => {
             stream.unpipe();
 
-            console.log(err);
+            console.log(`Error: ${url}`);
+            console.error(err);
         });
 
         stream.on('end', () => {
@@ -144,6 +145,8 @@ class Tumblr extends Base {
 
             this.downded += 1;
             this.writeURLRec(url);
+
+            console.log(`Downloaded: ${url}`);
 
             this.cur -= 1;
             this.runWin();
@@ -157,8 +160,6 @@ class Tumblr extends Base {
         }
         else {
             this.got(dl.url, this.getDest(dl.name));
-
-            console.log(`Download: ${dl.url}`);
         }
     }
     runWin() {
