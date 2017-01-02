@@ -88,6 +88,7 @@ class Tumblr extends Base {
 
         this.fetched = 0;
         this.downded = 0;
+        this.skipped = 0;
 
         return this.init();
     }
@@ -159,6 +160,7 @@ class Tumblr extends Base {
     }
     fetch(dl) {
         if (this.checkURLRec(dl.url)) {
+            this.skipped += 1;
             // console.log(`Skipped: ${dl.url}`);
         }
         else {
@@ -228,6 +230,12 @@ class Tumblr extends Base {
                 yield this.proc(data.liked_posts);
 
                 max = Math.min(data.liked_count, this.fetchNum);
+
+                if (this.skipped) {
+                    console.log(`Skipped: ${this.skipped}`);
+
+                    this.skipped = 0;
+                }
             }
             catch (e) {
                 console.error(e);
