@@ -136,8 +136,6 @@ class Tumblr extends Base {
         stream.on('error', err => {
             stream.unpipe();
 
-            fs.unlinkSync(temp);
-
             console.log(err);
         });
 
@@ -223,20 +221,18 @@ class Tumblr extends Base {
         while (offset < max) {
             step = Math.min(max - offset, this.fetchStep);
 
+            console.log(`Fetching Page ${page}`);
             try {
-                console.log(`Fetching Page ${page}`);
-
                 let data = yield this.client.userLikes({offset: offset, limit: step});
 
                 yield this.proc(data.liked_posts);
-
-                console.log(`Fetched Page ${page}`);
 
                 max = Math.min(data.liked_count, this.fetchNum);
             }
             catch (e) {
                 console.error(e);
             }
+            console.log(`Fetched Page ${page}`);
 
             offset += step;
             page += 1;
