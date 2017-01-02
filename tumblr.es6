@@ -138,6 +138,9 @@ class Tumblr extends Base {
 
             console.log(`Error: ${url}`);
             console.error(err);
+
+            this.cur -= 1;
+            this.runWin();
         });
 
         stream.on('end', () => {
@@ -156,7 +159,7 @@ class Tumblr extends Base {
     }
     fetch(dl) {
         if (this.checkURLRec(dl.url)) {
-            console.log(`Skipped: ${dl.url}`);
+            // console.log(`Skipped: ${dl.url}`);
         }
         else {
             this.got(dl.url, this.getDest(dl.name));
@@ -167,13 +170,9 @@ class Tumblr extends Base {
             while (this.cur < this.win && this.queue.length) {
                 this.fetch(this.queue.shift());
             }
-
-            this.running = !!this.cur;
         }
 
-        else {
-            this.running = false;
-        }
+        this.running = !!this.cur;
     }
     enQueue(dls) {
         this.queue = this.queue.concat(dls).filter(Boolean);
