@@ -240,7 +240,7 @@ class Tumblr extends Base {
             catch (e) {
                 console.error(e);
             }
-            console.log(`Fetched Page ${page}`);
+            console.log(`Fetched Page ${page}\n`);
 
             offset += step;
             page += 1;
