@@ -108,7 +108,7 @@ class Tumblr extends Base {
         return this.saveDir + '/' + name;
     }
     checkURLRec(url) {
-        return !this.record.includes(url);
+        return this.record.includes(url);
     }
     writeURLRec(url) {
         return fs.appendFileSync(this.fd, url + '\n');
@@ -119,28 +119,27 @@ class Tumblr extends Base {
         for (let photo of photos) {
             let url = photo.original_size.url;
 
-            if (this.checkURLRec(url)) {
-                dls.push({url: url, name: this.getName(url)});
-            }
-            else {
-                console.log(`Skipped: ${url}`);
-            }
+            dls.push({url: url, name: this.getName(url)});
         }
 
         return dls;
     }
     parseVideo(url) {
-        if (this.checkURLRec(url)) {
-            return {url: url, name: this.getName(url)};
-        }
-        else {
-            console.log(`Skipped: ${url}`);
-        }
+        return {url: url, name: this.getName(url)};
     }
     got(url, dest) {
-        let temp = dest + '.down';
+        this.cur += 1;
 
         let stream = got.stream(url.replace(/^https/, 'http'));
+        let temp = dest + '.down';
+
+        stream.on('error', err => {
+            stream.unpipe();
+
+            fs.unlinkSync(temp);
+
+            console.log(err);
+        });
 
         stream.on('end', () => {
             fs.renameSync(temp, dest);
@@ -152,29 +151,25 @@ class Tumblr extends Base {
             this.runWin();
         });
 
-        stream.on('error', err => {
-            stream.unpipe();
-
-            fs.unlinkSync(temp);
-
-            console.log(err);
-        });
-
         stream.pipe(fs.createWriteStream(temp));
+    }
+    fetch(dl) {
+        if (this.checkURLRec(dl.url)) {
+            console.log(`Skipped: ${dl.url}`);
+        }
+        else {
+            this.got(dl.url, this.getDest(dl.name));
+
+            console.log(`Download: ${dl.url}`);
+        }
     }
     runWin() {
         if (this.queue.length) {
             while (this.cur < this.win && this.queue.length) {
-                let dl = this.queue.shift();
-
-                this.got(dl.url, this.getDest(dl.name));
-
-                this.cur += 1;
-
-                console.log(`Download: ${dl.url} ${dl.name}`);
+                this.fetch(this.queue.shift());
             }
 
-            this.running = true;
+            this.running = !!this.cur;
         }
 
         else {
@@ -199,7 +194,7 @@ class Tumblr extends Base {
 
         return new Promise(promise);
     }
-    *fetch(posts) {
+    *proc(posts) {
         this.fetched += posts.length;
 
         for (let post of posts) {
@@ -209,13 +204,13 @@ class Tumblr extends Base {
             switch (true) {
                 case !!post.photos:
                     dls = this.parsePhotos(post.photos);
-                    break;
+                break;
                 case !!post.video_url:
                     dls = this.parseVideo(post.video_url);
-                    break;
+                break;
             }
 
-            dls && this.enQueue(dls);
+            this.enQueue(dls);
         }
 
         return this.runQueue();
@@ -233,7 +228,7 @@ class Tumblr extends Base {
 
                 let data = yield this.client.userLikes({offset: offset, limit: step});
 
-                yield this.fetch(data.liked_posts);
+                yield this.proc(data.liked_posts);
 
                 console.log(`Fetched Page ${page}`);
 
