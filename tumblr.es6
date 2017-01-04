@@ -7,29 +7,31 @@ function async(gen) {
     return function () {
         let it = gen.apply(this, arguments);
 
-        function dispatch(val) {
-            if (val && val.constructor === (function*(){})().constructor) {
-                return handler(val.next(), val);
+        function dispatch(ret) {
+            // generator iterator
+            if (ret && ret.constructor === (function*(){})().constructor) {
+                return handler(ret.next(), ret);
             }
+            // normal value
             else {
-                return Promise.resolve(val);
+                return Promise.resolve(ret);
             }
         }
 
-        function handler(res, i) {
+        function handler(res, it) {
             if (res.done) {
                 return dispatch(res.value);
             }
             else {
-                let onNext = function (res) {
-                    return handler(i.next(res), i);
+                let ok = function (ret) {
+                    return handler(it.next(ret), it);
                 };
 
-                let onError = function (err) {
-                    return handler(i.throw(err), i);
+                let err = function (err) {
+                    return handler(it.throw(err), it);
                 };
 
-                return dispatch(res.value).then(onNext, onError);
+                return dispatch(res.value).then(ok, err);
             }
         }
 
@@ -65,10 +67,10 @@ class Tumblr extends Base {
         super();
 
         options = Object.assign({
-            saveDir: './likes',
-            fetchNum: 250,
-            fetchStep: 20,
-            downLimit: 5,
+            dir: './likes',
+            max: 250,
+            step: 20,
+            win: 5,
         }, options || {});
 
         this.client = tumblrJS.createClient({
@@ -78,12 +80,15 @@ class Tumblr extends Base {
         });
 
         this.post = null;
-        this.saveDir = options.saveDir;
-        this.fetchNum = options.fetchNum;
-        this.fetchStep = options.fetchStep;
+
+        this.dir = options.dir;
+        this.max = options.max;
+        this.step = options.step;
+        this.win = options.win;
+
         this.queue = [];
-        this.win = options.downLimit;
         this.cur = 0; // current running download
+
         this.setupTxt();
 
         this.fetched = 0;
@@ -106,7 +111,7 @@ class Tumblr extends Base {
         return [blog, postId, path.basename(url)].join('-');
     }
     getDest(name) {
-        return this.saveDir + '/' + name;
+        return this.dir + '/' + name;
     }
     checkURLRec(url) {
         return this.record.includes(url);
@@ -216,12 +221,12 @@ class Tumblr extends Base {
         return this.runQueue();
     }
     *downLikes() {
-        fs.existsSync(this.saveDir) || fs.mkdirSync(this.saveDir);
+        fs.existsSync(this.dir) || fs.mkdirSync(this.dir);
 
-        let offset = 0, page = 1, max = this.fetchNum, step = this.fetchStep;
+        let offset = 0, page = 1, max = this.max, step = this.step;
 
         while (offset < max) {
-            step = Math.min(max - offset, this.fetchStep);
+            step = Math.min(max - offset, this.step);
 
             console.log(`Fetching Page ${page}`);
             try {
@@ -229,7 +234,7 @@ class Tumblr extends Base {
 
                 yield this.proc(data.liked_posts);
 
-                max = Math.min(data.liked_count, this.fetchNum);
+                max = Math.min(data.liked_count, this.max);
 
                 if (this.skipped) {
                     console.log(`Skipped: ${this.skipped}`);
