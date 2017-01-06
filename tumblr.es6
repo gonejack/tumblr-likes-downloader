@@ -54,7 +54,7 @@ class Tumblr {
         });
 
         let {
-            dir = '.likes',
+            dir = './likes',
             max = 250,
             step = 20,
             win = 5,
