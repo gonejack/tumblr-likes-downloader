@@ -46,24 +46,24 @@ function async(gen) {
 }
 
 class Tumblr {
-    constructor(credentials, options) {
-        options = Object.assign({
-            dir: './likes',
-            max: 250,
-            step: 20,
-            win: 5,
-        }, options || {});
-
+    constructor(credentials, options = {}) {
         this.client = tumblrJS.createClient({
             credentials: credentials,
 
             returnPromises: true,
         });
 
-        this.dir = options.dir;
-        this.max = options.max;
-        this.step = options.step;
-        this.downer = new queue(this.got.bind(this), options.win);
+        let {
+            dir = '.likes',
+            max = 250,
+            step = 20,
+            win = 5,
+        } = options;
+
+        this.dir = dir;
+        this.max = max;
+        this.step = step;
+        this.downer = new queue(this.got.bind(this), win);
 
         this.post = null;
         this.parsed = 0;
@@ -72,9 +72,9 @@ class Tumblr {
 
         this.setupTxt();
 
-        return this.init();
+        return this.async();
     }
-    init() {
+    async() {
         return new Proxy(this, {
             get(target, name) {
                 let member = target[name];
@@ -97,22 +97,25 @@ class Tumblr {
         this.record = fs.readFileSync(this.fd);
     }
     getName(url) {
-        let {blog_name: blog, id: postId} = this.post;
+        let {
+            blog_name: blog,
+            id: postId
+        } = this.post;
 
-        return [blog, postId, path.basename(url)].join('-');
+        return `${blog}-${postId}-${path.basename(url)}`;
     }
     getDest(name) {
-        return this.dir + '/' + name;
+        return `${this.dir}/${name}`;
     }
     checkURLRec(url) {
         return this.record.includes(url);
     }
     writeURLRec(url) {
-        return fs.appendFileSync(this.fd, url + '\n');
+        return fs.appendFileSync(this.fd, `${url}\n`);
     }
     got({url, name}) {
         let dest = this.getDest(name);
-        let temp = dest + '.down';
+        let temp = `${dest}.down`;
 
         return new Promise((res, rej) => {
             let stream = got.stream(url.replace(/^https/, 'http'));
@@ -157,9 +160,13 @@ class Tumblr {
         let arr = [];
 
         for (let post of posts) {
-            let {photos, video_url} = this.post = post;
+            let {
+                photos,
+                video_url
+            } = this.post = post;
 
             let dls = [];
+
             switch (true) {
                 case !!photos:
                     dls = this.parsePhotos(photos);
@@ -189,21 +196,22 @@ class Tumblr {
     *downLikes() {
         fs.existsSync(this.dir) || fs.mkdirSync(this.dir);
 
-        let offset = 0, page = 1, max = this.max, step = this.step;
+        let offset = 0, page = 1, max = this.max, limit = this.step;
 
         while (offset < max) {
-            step = Math.min(max - offset, this.step);
+            limit = Math.min(max - offset, this.step);
 
             try {
                 console.log(`Fetching Page ${page}`);
 
-                let data = yield this.client.userLikes({offset: offset, limit: step});
-
-                let {liked_posts: posts, liked_count: total} = data;
-
-                yield this.downSave(this.parse(posts));
+                let {
+                    liked_posts: posts,
+                    liked_count: total,
+                } = yield this.client.userLikes({offset, limit});
 
                 max = Math.min(total, this.max);
+
+                yield this.downSave(this.parse(posts));
             }
             catch (e) {
                 console.error(e);
@@ -218,7 +226,7 @@ class Tumblr {
                 console.log(`Fetched Page ${page}\n`);
             }
 
-            offset += step;
+            offset += limit;
             page += 1;
         }
 
