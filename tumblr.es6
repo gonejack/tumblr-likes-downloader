@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const got = require('got');
 const tumblrJS = require('tumblr.js');
+const queue = require('./queue.es6');
 
 function async(gen) {
     return function () {
@@ -44,7 +45,35 @@ function async(gen) {
     }
 }
 
-class Base {
+class Tumblr {
+    constructor(credentials, options) {
+        options = Object.assign({
+            dir: './likes',
+            max: 250,
+            step: 20,
+            win: 5,
+        }, options || {});
+
+        this.client = tumblrJS.createClient({
+            credentials: credentials,
+
+            returnPromises: true,
+        });
+
+        this.dir = options.dir;
+        this.max = options.max;
+        this.step = options.step;
+        this.downer = new queue(this.got.bind(this), options.win);
+
+        this.post = null;
+        this.parsed = 0;
+        this.downded = 0;
+        this.skipped = 0;
+
+        this.setupTxt();
+
+        return this.init();
+    }
     init() {
         return new Proxy(this, {
             get(target, name) {
@@ -59,43 +88,6 @@ class Base {
                 }
             }
         });
-    }
-}
-
-class Tumblr extends Base {
-    constructor(credentials, options) {
-        super();
-
-        options = Object.assign({
-            dir: './likes',
-            max: 250,
-            step: 20,
-            win: 5,
-        }, options || {});
-
-        this.client = tumblrJS.createClient({
-            credentials: credentials,
-
-            returnPromises: true,
-        });
-
-        this.post = null;
-
-        this.dir = options.dir;
-        this.max = options.max;
-        this.step = options.step;
-        this.win = options.win;
-
-        this.queue = [];
-        this.cur = 0; // current running download
-
-        this.setupTxt();
-
-        this.fetched = 0;
-        this.downded = 0;
-        this.skipped = 0;
-
-        return this.init();
     }
     setupTxt() {
         let date = new Date();
@@ -119,6 +111,36 @@ class Tumblr extends Base {
     writeURLRec(url) {
         return fs.appendFileSync(this.fd, url + '\n');
     }
+    got(dl) {
+        let url = dl.url;
+        let dest = this.getDest(dl.name);
+        let temp = dest + '.down';
+
+        return new Promise((resolve, reject) => {
+            let stream = got.stream(url.replace(/^https/, 'http'));
+
+            stream.on('error', err => {
+                stream.unpipe();
+
+                console.log(`Error: ${url}`);
+
+                reject(err);
+            });
+
+            stream.on('end', () => {
+                fs.renameSync(temp, dest);
+
+                this.downded += 1;
+                this.writeURLRec(url);
+
+                console.log(`Downloaded: ${url}`);
+
+                resolve(url);
+            });
+
+            stream.pipe(fs.createWriteStream(temp));
+        });
+    }
     parsePhotos(photos) {
         let dls = [];
 
@@ -133,74 +155,10 @@ class Tumblr extends Base {
     parseVideo(url) {
         return {url: url, name: this.getName(url)};
     }
-    got(url, dest) {
-        this.cur += 1;
+    parse(posts) {
+        this.parsed += posts.length;
 
-        let stream = got.stream(url.replace(/^https/, 'http'));
-        let temp = dest + '.down';
-
-        stream.on('error', err => {
-            stream.unpipe();
-
-            console.log(`Error: ${url}`);
-            console.error(err);
-
-            this.cur -= 1;
-            this.runWin();
-        });
-
-        stream.on('end', () => {
-            fs.renameSync(temp, dest);
-
-            this.downded += 1;
-            this.writeURLRec(url);
-
-            console.log(`Downloaded: ${url}`);
-
-            this.cur -= 1;
-            this.runWin();
-        });
-
-        stream.pipe(fs.createWriteStream(temp));
-    }
-    fetch(dl) {
-        if (this.checkURLRec(dl.url)) {
-            this.skipped += 1;
-            // console.log(`Skipped: ${dl.url}`);
-        }
-        else {
-            this.got(dl.url, this.getDest(dl.name));
-        }
-    }
-    runWin() {
-        if (this.queue.length) {
-            while (this.cur < this.win && this.queue.length) {
-                this.fetch(this.queue.shift());
-            }
-        }
-
-        this.running = !!this.cur;
-    }
-    enQueue(dls) {
-        this.queue = this.queue.concat(dls).filter(Boolean);
-    }
-    runQueue() {
-        let promise = (ok, err) => {
-            this.runWin();
-
-            let check = setInterval(() => {
-                if (!this.running) {
-                    clearInterval(check);
-
-                    ok();
-                }
-            }, 500);
-        };
-
-        return new Promise(promise);
-    }
-    *proc(posts) {
-        this.fetched += posts.length;
+        let arr = [];
 
         for (let post of posts) {
             this.post = post;
@@ -215,10 +173,22 @@ class Tumblr extends Base {
                 break;
             }
 
-            this.enQueue(dls);
+            arr = arr.concat(dls).filter(Boolean);
         }
 
-        return this.runQueue();
+        arr = arr.filter(dl => {
+            if (this.checkURLRec(dl.url)) {
+                this.skipped += 1;
+            }
+            else {
+                return true;
+            }
+        });
+
+        return arr;
+    }
+    downSave(dls) {
+        return this.downer.execAll(dls);
     }
     *downLikes() {
         fs.existsSync(this.dir) || fs.mkdirSync(this.dir);
@@ -232,7 +202,7 @@ class Tumblr extends Base {
             try {
                 let data = yield this.client.userLikes({offset: offset, limit: step});
 
-                yield this.proc(data.liked_posts);
+                yield this.downSave(this.parse(data.liked_posts));
 
                 max = Math.min(data.liked_count, this.max);
 
@@ -251,7 +221,7 @@ class Tumblr extends Base {
             page += 1;
         }
 
-        console.log(`Post fetched: ${this.fetched}`);
+        console.log(`Post parsed: ${this.parsed}`);
         console.log(`Things downed: ${this.downded}`);
     }
 }

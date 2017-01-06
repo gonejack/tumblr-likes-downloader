@@ -1,115 +1,86 @@
-'use strict';
-
 class Queue {
 	constructor(act, win) {
 		this.act = act;
-		this.win = win || 1;
-		this.cur = 0;
-		this.running = false;
 		this.jobs = {};
 
-        this.nums = [];
+		this.win = win || 1; // execute window
+		this.last = 0; // last
+		this.next = 0; // candidate
+
+		this.running = false;
+		this.prom = null;
 	}
-	arrange() {
-		let num;
-
-		do {
-			num = 'k' + Math.random().toString(36).substr(-6);
-		}
-		while (this.nums.indexOf(num) > -1);
-
-        this.nums.push(num);
-
-		return num;
+	enQueue(data, resolve, reject) {
+		return this.jobs[this.last++] = {data, resolve, reject};
 	}
-	prepare(num, data) {
-		let job = {
-			data: data,
-			resolve: null,
-			reject: null,
-		};
+	deQueue() {
+		if (this.next < this.last) {
+			while (this.win && this.next < this.last) {
+				this.fire(this.next++);
 
-		return this.jobs[num] = job;
-	}
-	load() {
-		let nums = this.nums;
-
-		if (nums.length) {
-			do {
-                this.exec(nums.shift());
-
-				this.cur += 1;
+				this.win -= 1;
 			}
-			while (this.cur < this.win && nums.length);
+
+			this.running = true;
 		}
-
-		this.running = !!this.cur;
+		else {
+			this.running = false;
+		}
 	}
-	feed() {
-		this.cur -= 1;
-
-		this.load();
-	}
-	exec(num) {
-		this.act(this.jobs[num].data).then(res => {
-			this.ok(num, res);
+	fire(num) {
+		this.act(this.jobs[num].data).then(ret => {
+			this.resolve(num, ret);
 		}, err => {
-			this.err(num, err);
+			this.reject(num, err);
 		});
 	}
-	ok(num, res) {
-		let job = this.jobs[num];
+	resolve(num, ret) {
+		this.jobs[num].resolve(ret);
 
-		try {
-			job.resolve(res)
-		}
-		finally {
-            this.sweep(num);
-			this.feed()
-		}
+		this.erase(num);
+		this.deQueue();
 	}
-	err(num, err) {
-		let job = this.jobs[num];
+	reject(num, err) {
+		this.jobs[num].reject(err);
 
-		try {
-			job.reject(err)
-		}
-		finally {
-            this.sweep(num);
-			this.feed();
-		}
+		this.erase(num);
+		this.deQueue();
 	}
-	sweep(num) {
+	erase(num) {
 		delete this.jobs[num];
+
+		this.win += 1;
 	}
 	promise(data) {
-		let job = this.prepare(this.arrange(), data);
-
-		return new Promise((ok, err) => {
-			job.resolve = ok;
-			job.reject = err;
-		});
+		return this.prom = new Promise((ok, err) => { this.enQueue(data, ok, err) });
 	}
-	one(data) {
-		let promise = this.promise(data);
-
-        this.running || this.load();
-
-		return promise;
+	promiseArr(arr) {
+		this.prom = Promise.all(arr.map(data => this.promise(data)));
 	}
-	all(arr) {
-		let promise = Promise.all(arr.map(this.promise.bind(this)));
+	prepare() {
+		if (this.running) {
+			// should not reset
+		}
+		else {
+			this.last = 0;
+			this.next = 0;
+			this.jobs = {};
+		}
+	}
+	exec(data) {
+		this.prepare();
+		this.promise(data);
+		this.deQueue();
 
-        setTimeout(() => { this.running || this.load() }, 50);
+		return this.prom;
+	}
+	execAll(arr) {
+		this.prepare();
+		this.promiseArr(arr);
+		this.deQueue();
 
-		return promise;
+		return this.prom;
 	}
 }
 
-let act = (arg) => {
-	return new Promise((ok, err) => {
-		setTimeout(() => {ok(arg)}, Math.random() * 5000)
-	})
-};
-
-new Queue(act, 5).all([1,2,3,4,5,6,7,8,9,10,12,23]);
+module.exports = Queue;
