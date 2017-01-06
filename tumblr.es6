@@ -97,8 +97,7 @@ class Tumblr {
         this.record = fs.readFileSync(this.fd);
     }
     getName(url) {
-        let blog = this.post.blog_name;
-        let postId = this.post.id;
+        let {blog_name: blog, id: postId} = this.post;
 
         return [blog, postId, path.basename(url)].join('-');
     }
@@ -111,12 +110,11 @@ class Tumblr {
     writeURLRec(url) {
         return fs.appendFileSync(this.fd, url + '\n');
     }
-    got(dl) {
-        let url = dl.url;
-        let dest = this.getDest(dl.name);
+    got({url, name}) {
+        let dest = this.getDest(name);
         let temp = dest + '.down';
 
-        return new Promise((resolve, reject) => {
+        return new Promise((res, rej) => {
             let stream = got.stream(url.replace(/^https/, 'http'));
 
             stream.on('error', err => {
@@ -124,7 +122,7 @@ class Tumblr {
 
                 console.log(`Error: ${url}`);
 
-                reject(err);
+                rej(err);
             });
 
             stream.on('end', () => {
@@ -135,7 +133,7 @@ class Tumblr {
 
                 console.log(`Downloaded: ${url}`);
 
-                resolve(url);
+                res(url);
             });
 
             stream.pipe(fs.createWriteStream(temp));
@@ -144,16 +142,14 @@ class Tumblr {
     parsePhotos(photos) {
         let dls = [];
 
-        for (let photo of photos) {
-            let url = photo.original_size.url;
-
-            dls.push({url: url, name: this.getName(url)});
+        for (let {original_size: {url}} of photos) {
+            dls.push({url, name: this.getName(url)});
         }
 
         return dls;
     }
     parseVideo(url) {
-        return {url: url, name: this.getName(url)};
+        return {url, name: this.getName(url)};
     }
     parse(posts) {
         this.parsed += posts.length;
@@ -161,19 +157,19 @@ class Tumblr {
         let arr = [];
 
         for (let post of posts) {
-            this.post = post;
+            let {photos, video_url} = this.post = post;
 
-            let dls;
+            let dls = [];
             switch (true) {
-                case !!post.photos:
-                    dls = this.parsePhotos(post.photos);
+                case !!photos:
+                    dls = this.parsePhotos(photos);
                 break;
-                case !!post.video_url:
-                    dls = this.parseVideo(post.video_url);
+                case !!video_url:
+                    dls = this.parseVideo(video_url);
                 break;
             }
 
-            arr = arr.concat(dls).filter(Boolean);
+            arr = arr.concat(dls);
         }
 
         arr = arr.filter(dl => {
@@ -198,24 +194,29 @@ class Tumblr {
         while (offset < max) {
             step = Math.min(max - offset, this.step);
 
-            console.log(`Fetching Page ${page}`);
             try {
+                console.log(`Fetching Page ${page}`);
+
                 let data = yield this.client.userLikes({offset: offset, limit: step});
 
-                yield this.downSave(this.parse(data.liked_posts));
+                let {liked_posts: posts, liked_count: total} = data;
 
-                max = Math.min(data.liked_count, this.max);
+                yield this.downSave(this.parse(posts));
 
+                max = Math.min(total, this.max);
+            }
+            catch (e) {
+                console.error(e);
+            }
+            finally {
                 if (this.skipped) {
                     console.log(`Skipped: ${this.skipped}`);
 
                     this.skipped = 0;
                 }
+
+                console.log(`Fetched Page ${page}\n`);
             }
-            catch (e) {
-                console.error(e);
-            }
-            console.log(`Fetched Page ${page}\n`);
 
             offset += step;
             page += 1;
