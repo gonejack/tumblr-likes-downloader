@@ -10,29 +10,12 @@ class Queue {
 		this.running = false;
 		this.prom = null;
 	}
-	enQueue(data, resolve, reject) {
-		return this.jobs[this.last++] = {data, resolve, reject};
-	}
-	deQueue() {
-		if (this.next < this.last) {
-			while (this.win && this.next < this.last) {
-				this.fire(this.next++);
-
-				this.win -= 1;
-			}
-
-			this.running = true;
-		}
-		else {
-			this.running = false;
-		}
-	}
 	fire(num) {
-		this.act(this.jobs[num].data).then(ret => {
-			this.resolve(num, ret);
-		}, err => {
-			this.reject(num, err);
-		});
+        this.act(this.jobs[num].data).then(ret => {
+            this.resolve(num, ret);
+        }, err => {
+            this.reject(num, err);
+        });
 	}
 	resolve(num, ret) {
 		this.jobs[num].resolve(ret);
@@ -51,22 +34,39 @@ class Queue {
 
 		this.win += 1;
 	}
+    prepare() {
+        if (this.running) {
+            // should not reset
+        }
+        else {
+            this.last = 0;
+            this.next = 0;
+            this.jobs = {};
+        }
+    }
 	promise(data) {
-		return this.prom = new Promise((ok, err) => { this.enQueue(data, ok, err) });
+		return this.prom = new Promise((ok, err) => this.enQueue(data, ok, err));
 	}
 	promiseArr(arr) {
-		this.prom = Promise.all(arr.map(data => this.promise(data)));
+		return this.prom = Promise.all(arr.map(data => this.promise(data)));
 	}
-	prepare() {
-		if (this.running) {
-			// should not reset
-		}
-		else {
-			this.last = 0;
-			this.next = 0;
-			this.jobs = {};
-		}
-	}
+    enQueue(data, resolve, reject) {
+        return this.jobs[this.last++] = {data, resolve, reject};
+    }
+    deQueue() {
+        if (this.next < this.last) {
+            while (this.win && this.next < this.last) {
+                this.fire(this.next++);
+
+                this.win -= 1;
+            }
+
+            this.running = true;
+        }
+        else {
+            this.running = false;
+        }
+    }
 	exec(data) {
 		this.prepare();
 		this.promise(data);
