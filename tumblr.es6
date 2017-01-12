@@ -60,10 +60,7 @@ class Tumblr {
 	}
 
 	getName(url) {
-		let {
-			blog_name: blog,
-			id: postId
-		} = this.post;
+		let {blog_name: blog, id: postId} = this.post;
 
 		return `${blog}-${postId}-${path.basename(url)}`;
 	}
@@ -130,20 +127,17 @@ class Tumblr {
 		let arr = [];
 
 		for (let post of posts) {
-			let {
-				photos,
-				video_url
-			} = this.post = post;
+			let {photos, video_url} = this.post = post;
 
 			let dls = [];
 
 			switch (true) {
 				case !!photos:
 					dls = this.parsePhotos(photos);
-					break;
+				break;
 				case !!video_url:
 					dls = this.parseVideo(video_url);
-					break;
+				break;
 			}
 
 			arr = arr.concat(dls);
