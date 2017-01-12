@@ -6,193 +6,205 @@ const queue = require('./queue.es6');
 const async = require('./async.es6');
 
 class Tumblr {
-    constructor(credentials, options = {}) {
-        this.client = tumblrJS.createClient({
-            credentials: credentials,
+	constructor(credentials, options = {}) {
+		this.client = tumblrJS.createClient({
+			credentials: credentials,
 
-            returnPromises: true,
-        });
+			returnPromises: true,
+		});
 
-        let {
-            dir = './likes',
-            max = 250,
-            step = 20,
-            win = 5,
-        } = options;
+		let {
+			dir = './likes',
+			max = 250,
+			step = 20,
+			win = 5,
+		} = options;
 
-        this.dir = dir;
-        this.max = max;
-        this.step = step;
-        this.downer = new queue(this.got.bind(this), win);
+		this.dir = dir;
+		this.max = max;
+		this.step = step;
+		this.downer = new queue(this.got.bind(this), win);
 
-        this.post = null;
-        this.parsed = 0;
-        this.downded = 0;
-        this.skipped = 0;
+		this.post = null;
+		this.parsed = 0;
+		this.downded = 0;
+		this.skipped = 0;
 
-        this.setupTxt();
+		this.setupTxt();
 
-        return this.async();
-    }
-    async() {
-        return new Proxy(this, {
-            get(target, name) {
-                let member = target[name];
-                if (typeof member === 'function') {
-                    let method = target[name].bind(target);
+		return this.async();
+	}
 
-                    return async(method);
-                }
-                else {
-                    return member;
-                }
-            }
-        });
-    }
-    setupTxt() {
-        let date = new Date();
-        let file = ['./', date.getFullYear(), date.getMonth(), '.txt'].join('');
+	async() {
+		return new Proxy(this, {
+			get(target, name) {
+				let member = target[name];
+				if (typeof member === 'function') {
+					let method = target[name].bind(target);
 
-        this.fd = fs.openSync(file, 'a+');
-        this.record = fs.readFileSync(this.fd);
-    }
-    getName(url) {
-        let {
-            blog_name: blog,
-            id: postId
-        } = this.post;
+					return async(method);
+				}
+				else {
+					return member;
+				}
+			}
+		});
+	}
 
-        return `${blog}-${postId}-${path.basename(url)}`;
-    }
-    getDest(name) {
-        return `${this.dir}/${name}`;
-    }
-    checkURLRec(url) {
-        return this.record.includes(url);
-    }
-    writeURLRec(url) {
-        return fs.appendFileSync(this.fd, `${url}\n`);
-    }
-    got({url, name}) {
-        let dest = this.getDest(name);
-        let temp = `${dest}.down`;
+	setupTxt() {
+		let date = new Date();
+		let file = ['./', date.getFullYear(), date.getMonth(), '.txt'].join('');
 
-        return new Promise((res, rej) => {
-            let stream = got.stream(url.replace(/^https/, 'http'));
+		this.fd = fs.openSync(file, 'a+');
+		this.record = fs.readFileSync(this.fd);
+	}
 
-            stream.on('error', err => {
-                stream.unpipe();
+	getName(url) {
+		let {
+			blog_name: blog,
+			id: postId
+		} = this.post;
 
-                console.log(`Error: ${url}`);
+		return `${blog}-${postId}-${path.basename(url)}`;
+	}
 
-                rej(err);
-            });
+	getDest(name) {
+		return `${this.dir}/${name}`;
+	}
 
-            stream.on('end', () => {
-                fs.renameSync(temp, dest);
+	checkURLRec(url) {
+		return this.record.includes(url);
+	}
 
-                this.downded += 1;
-                this.writeURLRec(url);
+	writeURLRec(url) {
+		return fs.appendFileSync(this.fd, `${url}\n`);
+	}
 
-                console.log(`Downloaded: ${url}`);
+	got({url, name}) {
+		let dest = this.getDest(name);
+		let temp = `${dest}.down`;
 
-                res(url);
-            });
+		return new Promise((res, rej) => {
+			let stream = got.stream(url.replace(/^https/, 'http'));
 
-            stream.pipe(fs.createWriteStream(temp));
-        });
-    }
-    parsePhotos(photos) {
-        let dls = [];
+			stream.on('error', err => {
+				stream.unpipe();
 
-        for (let {original_size: {url}} of photos) {
-            dls.push({url, name: this.getName(url)});
-        }
+				console.log(`Error: ${url}`);
 
-        return dls;
-    }
-    parseVideo(url) {
-        return {url, name: this.getName(url)};
-    }
-    parse(posts) {
-        this.parsed += posts.length;
+				rej(err);
+			});
 
-        let arr = [];
+			stream.on('end', () => {
+				fs.renameSync(temp, dest);
 
-        for (let post of posts) {
-            let {
-                photos,
-                video_url
-            } = this.post = post;
+				this.downded += 1;
+				this.writeURLRec(url);
 
-            let dls = [];
+				console.log(`Downloaded: ${url}`);
 
-            switch (true) {
-                case !!photos:
-                    dls = this.parsePhotos(photos);
-                break;
-                case !!video_url:
-                    dls = this.parseVideo(video_url);
-                break;
-            }
+				res(url);
+			});
 
-            arr = arr.concat(dls);
-        }
+			stream.pipe(fs.createWriteStream(temp));
+		});
+	}
 
-        arr = arr.filter(dl => {
-            if (this.checkURLRec(dl.url)) {
-                this.skipped += 1;
-            }
-            else {
-                return true;
-            }
-        });
+	parsePhotos(photos) {
+		let dls = [];
 
-        return arr;
-    }
-    downSave(dls) {
-        return this.downer.execAll(dls);
-    }
-    *downLikes() {
-        fs.existsSync(this.dir) || fs.mkdirSync(this.dir);
+		for (let {original_size: {url}} of photos) {
+			dls.push({url, name: this.getName(url)});
+		}
 
-        let offset = 0, page = 1, max = this.max, limit = this.step;
+		return dls;
+	}
 
-        while (offset < max) {
-            limit = Math.min(max - offset, this.step);
+	parseVideo(url) {
+		return {url, name: this.getName(url)};
+	}
 
-            try {
-                console.log(`Fetching Page ${page}`);
+	parse(posts) {
+		this.parsed += posts.length;
 
-                let {
-                    liked_posts: posts,
-                    liked_count: total,
-                } = yield this.client.userLikes({offset, limit});
+		let arr = [];
 
-                max = Math.min(total, this.max);
+		for (let post of posts) {
+			let {
+				photos,
+				video_url
+			} = this.post = post;
 
-                yield this.downSave(this.parse(posts));
-            }
-            catch (e) {
-                console.error(e);
-            }
-            finally {
-                if (this.skipped) {
-                    console.log(`Skipped: ${this.skipped}`);
+			let dls = [];
 
-                    this.skipped = 0;
-                }
+			switch (true) {
+				case !!photos:
+					dls = this.parsePhotos(photos);
+					break;
+				case !!video_url:
+					dls = this.parseVideo(video_url);
+					break;
+			}
 
-                console.log(`Fetched Page ${page}\n`);
-            }
+			arr = arr.concat(dls);
+		}
 
-            offset += limit;
-            page += 1;
-        }
+		arr = arr.filter(dl => {
+			if (this.checkURLRec(dl.url)) {
+				this.skipped += 1;
+			}
+			else {
+				return true;
+			}
+		});
 
-        console.log(`Post parsed: ${this.parsed}`);
-        console.log(`Things downed: ${this.downded}`);
-    }
+		return arr;
+	}
+
+	downSave(dls) {
+		return this.downer.execAll(dls);
+	}
+
+	*downLikes() {
+		fs.existsSync(this.dir) || fs.mkdirSync(this.dir);
+
+		let offset = 0, page = 1, max = this.max, limit = this.step;
+
+		while (offset < max) {
+			limit = Math.min(max - offset, this.step);
+
+			try {
+				console.log(`Fetching Page ${page}`);
+
+				let {
+					liked_posts: posts,
+					liked_count: total,
+				} = yield this.client.userLikes({offset, limit});
+
+				max = Math.min(total, this.max);
+
+				yield this.downSave(this.parse(posts));
+			}
+			catch (e) {
+				console.error(e);
+			}
+			finally {
+				if (this.skipped) {
+					console.log(`Skipped: ${this.skipped}`);
+
+					this.skipped = 0;
+				}
+
+				console.log(`Fetched Page ${page}\n`);
+			}
+
+			offset += limit;
+			page += 1;
+		}
+
+		console.log(`Post parsed: ${this.parsed}`);
+		console.log(`Things downed: ${this.downded}`);
+	}
 }
 
 module.exports = Tumblr;
