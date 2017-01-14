@@ -156,7 +156,7 @@ class Tumblr {
 	}
 
 	downSave(dls) {
-		return this.downer.execAll(dls);
+		return this.downer.enQueueAll(dls);
 	}
 
 	*downLikes() {

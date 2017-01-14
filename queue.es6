@@ -2,69 +2,56 @@ class Queue {
 	constructor(act, win) {
 		this.act = act;
 		this.win = win || 1; // execute window
-        this.queue = [];
-        this.packs = {};
+		this.queue = [];
 		this.prom = null;
 	}
 
-	fire(code) {
-		this.act(this.packs[code].data).then(ret => {
-			this.resolve(code, ret);
+	fire() {
+		while (this.win && this.queue.length) {
+			this.shoot(this.shift());
+		}
+	}
+	shoot(pack) {
+		this.win -= 1;
+
+		this.act(pack.data).then(ret => {
+			this.proceed(pack.resolve, ret);
 		}, err => {
-			this.reject(code, err);
+			this.proceed(pack.reject, err);
 		});
 	}
-	resolve(code, ret) {
-		this.packs[code].resolve(ret);
+	proceed(cb, ret) {
+		this.eject(cb, ret);
 
-		this.erase(code);
-		this.deQueue();
+		this.fire();
 	}
-	reject(code, err) {
-		this.packs[code].reject(err);
-
-		this.erase(code);
-		this.deQueue();
+	eject(cb, ret) {
+		return cb(ret), this.win += 1;
 	}
-	erase(code) {
-		delete this.packs[code];
 
-		this.win += 1;
+	push(data, resolve, reject) {
+		return this.queue.push({data, resolve, reject});
+	}
+	shift() {
+		return this.queue.shift();
 	}
 
 	promise(data) {
-		return this.prom = new Promise((ok, err) => this.enQueue(data, ok, err));
+		return this.prom = new Promise((ok, err) => this.push(data, ok, err));
 	}
 	promiseArr(arr) {
 		return this.prom = Promise.all(arr.map(data => this.promise(data)));
 	}
 
-	enQueue(data, resolve, reject) {
-        let code = Symbol();
-
-        this.queue.push(code);
-        this.packs[code] = {data, resolve, reject};
-
-        return code;
-	}
-	deQueue() {
-		while (this.win && this.queue.length) {
-            this.fire(this.queue.shift());
-
-            this.win -= 1;
-		}
-	}
-
-	exec(data) {
+	enQueue(data) {
 		this.promise(data);
-		this.deQueue();
+		this.fire();
 
 		return this.prom;
 	}
-
-	execAll(arr) {
+	enQueueAll(arr) {
 		this.promiseArr(arr);
-		this.deQueue();
+		this.fire();
 
 		return this.prom;
 	}
