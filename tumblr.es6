@@ -53,7 +53,7 @@ class Tumblr {
 
 	setupTxt() {
 		let date = new Date();
-		let file = ['./', date.getFullYear(), date.getMonth(), '.txt'].join('');
+		let file = ['./', date.getFullYear(), date.getMonth() + 1, '.txt'].join('');
 
 		this.fd = fs.openSync(file, 'a+');
 		this.record = fs.readFileSync(this.fd);
