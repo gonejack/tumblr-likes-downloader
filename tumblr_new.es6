@@ -4,7 +4,6 @@ const got = require('got');
 const execSync = require('child_process').execSync;
 const tumblrJS = require('tumblr.js');
 const queue = require('./queue.es6');
-const async = require('./async.es6');
 const log = console.log;
 
 class Tumblr {
@@ -34,22 +33,7 @@ class Tumblr {
 
         this.setupTxt();
 
-        return this.async();
-    }
-    async() {
-        return new Proxy(this, {
-            get(target, name) {
-                let member = target[name];
-                if (typeof member === 'function') {
-                    let method = target[name].bind(target);
-
-                    return async(method);
-                }
-                else {
-                    return member;
-                }
-            }
-        });
+        return this;
     }
     setupTxt() {
         let date = new Date();
@@ -135,10 +119,10 @@ class Tumblr {
             switch (true) {
                 case !!photos:
                     dls = this.parsePhotos(photos);
-                    break;
+                break;
                 case !!video_url:
                     dls = this.parseVideo(video_url);
-                    break;
+                break;
             }
 
             arr = arr.concat(dls);
@@ -158,7 +142,7 @@ class Tumblr {
     downSave(dls) {
         return this.downer.enQueueAll(dls);
     }
-    *downLikes() {
+    async downLikes() {
         fs.existsSync(this.dir) || fs.mkdirSync(this.dir);
 
         let offset = 0, page = 1, max = this.max, limit = this.step;
@@ -172,11 +156,11 @@ class Tumblr {
                 let {
                     liked_posts: posts,
                     liked_count: total,
-                } = yield this.client.userLikes({offset, limit});
+                } = await this.client.userLikes({offset, limit});
 
                 max = Math.min(total, this.max);
 
-                yield this.downSave(this.parse(posts));
+                await this.downSave(this.parse(posts));
             }
             catch (e) {
                 console.error(e);
