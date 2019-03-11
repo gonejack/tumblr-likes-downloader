@@ -82,32 +82,29 @@ class Tumblr {
         return fs.appendFileSync(this.fd, `${url}\n`);
     }
     got({url, name}) {
-        let dest = this.getDest(name);
-        let temp = `${dest}.down`;
+        const  dest = this.getDest(name);
 
-        return new Promise((res, rej) => {
-            let stream = got.stream(url);
+        return got(url, {
+            encoding: null,
+            timeout: {
+                request: 60e3,
+            },
+            retry: 3,
+            hooks: {
+                beforeRetry: [(opt, err, retryN) => {
+                    console.log("[Retry]", opt.href)
+                }]
+            }
+        }).then(resp => {
+            log(`Downloaded: ${url}`);
+            fs.writeFileSync(dest, resp.body);
+            this.downded += 1;
+            this.writeURLRec(url);
 
-            stream.on('error', err => {
-                stream.unpipe();
-
-                log(`Error: ${url}`);
-
-                rej(err);
-            });
-
-            stream.on('end', () => {
-                fs.renameSync(temp, dest);
-
-                this.downded += 1;
-                this.writeURLRec(url);
-
-                log(`Downloaded: ${url}`);
-
-                res(url);
-            });
-
-            stream.pipe(fs.createWriteStream(temp));
+            return url;
+        }).catch(err => {
+            log(`Error: ${url}`);
+            return err
         });
     }
     parsePhotos(photos) {

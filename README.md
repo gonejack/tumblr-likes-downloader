@@ -8,7 +8,7 @@ Usage:
   // Get your credentials from tumblr API console.
   let credentials = {
       consumer_key: <YOUR KEY>,
-      consumer_secret: <YOUR SECRET>,
+     consumer_secret: <YOUR SECRET>,
       token: <YOUR TOKEN>,
       token_secret: <YOUR TOKEN SECRET>
   };
