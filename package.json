@@ -2,9 +2,9 @@
   "name": "tumblr-likes-downloader",
   "version": "0.0.1",
   "dependencies": {
-    "got": "^6.7.1",
+    "got": "^10.7.0",
     "md5-file": "^5.0.0",
-    "trash": "^4.3.0",
+    "trash": "^6.1.1",
     "tumblr.js": "^2.0.2"
   }
 }
