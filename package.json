@@ -4,7 +4,7 @@
   "dependencies": {
     "got": "^11.1.4",
     "md5-file": "^5.0.0",
-    "trash": "^6.1.1",
+    "trash": "^7.1.0",
     "tumblr.js": "^2.0.2"
   }
 }
